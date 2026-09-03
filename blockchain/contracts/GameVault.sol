@@ -18,12 +18,23 @@ contract GameVault {
 		bool active;
 	}
 
+	struct Asset {
+		uint256 assetId;
+		uint256 gameId;
+		uint256 accountId;
+		string name;
+		uint256 quantity;
+		bool active;
+	}
+
 	mapping(uint256 => Game) public games;
 	mapping(uint256 => GameAccount) public gameAccounts;
+	mapping(uint256 => Asset) public assets;
 	mapping(uint256 => mapping(bytes32 => bool)) private externalAccountLinked;
 
 	uint256 private nextGameId = 1;
 	uint256 private nextAccountId = 1;
+	uint256 private nextAssetId = 1;
 	address public admin;
 
 	error UnauthorizedAdmin();
@@ -37,6 +48,8 @@ contract GameVault {
 	error EmptyString();
 	error DuplicateExternalAccount();
 	error InvalidNewOwner();
+	error InvalidQuantity();
+	error AssetNotFound();
 
 	event GameRegistered(
 		uint256 indexed gameId,
@@ -57,6 +70,14 @@ contract GameVault {
 		uint256 indexed gameId,
 		address indexed previousOwner,
 		address newOwner
+	);
+	event AssetAdded(
+		uint256 indexed assetId,
+		uint256 indexed gameId,
+		uint256 indexed accountId,
+		string name,
+		uint256 quantity,
+		address addedBy
 	);
 
 	modifier onlyAdmin() {
@@ -151,5 +172,48 @@ contract GameVault {
 		address previousOwner = account.owner;
 		account.owner = newOwner;
 		emit AccountOwnershipTransferred(accountId, account.gameId, previousOwner, newOwner);
+	}
+
+	function addAsset(
+		uint256 accountId,
+		string calldata name,
+		uint256 quantity
+	) external returns (uint256 assetId) {
+		GameAccount storage account = gameAccounts[accountId];
+		if (account.accountId == 0) revert AccountNotFound();
+		if (!account.active) revert InactiveAccount();
+
+		Game storage game = games[account.gameId];
+		if (game.gameId == 0) revert GameNotFound();
+		if (!game.active) revert InactiveGame();
+		if (msg.sender != game.developer) revert UnauthorizedDeveloper();
+		if (bytes(name).length == 0) revert EmptyString();
+		if (quantity == 0) revert InvalidQuantity();
+
+		assetId = nextAssetId++;
+		assets[assetId] = Asset({
+			assetId: assetId,
+			gameId: account.gameId,
+			accountId: accountId,
+			name: name,
+			quantity: quantity,
+			active: true
+		});
+
+		emit AssetAdded(assetId, account.gameId, accountId, name, quantity, msg.sender);
+	}
+
+	function getAsset(uint256 assetId) external view returns (Asset memory) {
+		if (assets[assetId].assetId == 0) revert AssetNotFound();
+		return assets[assetId];
+	}
+
+	function getAssetOwner(uint256 assetId) external view returns (address) {
+		Asset storage asset = assets[assetId];
+		if (asset.assetId == 0) revert AssetNotFound();
+
+		GameAccount storage account = gameAccounts[asset.accountId];
+		if (account.accountId == 0) revert AccountNotFound();
+		return account.owner;
 	}
 }
