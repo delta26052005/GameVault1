@@ -28,6 +28,16 @@ await accountLinkTransaction.wait();
 
 const linkedGameAccount = await gameVault.getGameAccount(1n);
 
+const assetTransaction = await developerGameVault.addAsset(
+	1n,
+	"Legendary Sword",
+	1n,
+);
+await assetTransaction.wait();
+
+const asset = await gameVault.getAsset(1n);
+const assetOwner = await gameVault.getAssetOwner(1n);
+
 const playerGameVault = await ethers.getContractAt(
 	"GameVault",
 	"0x5FbDB2315678afecb367f032d93F642f64180aa3",
@@ -70,6 +80,9 @@ console.log("Registered game:", game);
 console.log("Player address:", player.address);
 console.log("Account-link transaction hash:", accountLinkTransaction.hash);
 console.log("Linked game account:", linkedGameAccount);
+console.log("Asset transaction hash:", assetTransaction.hash);
+console.log("Asset details:", asset);
+console.log("Asset owner:", assetOwner);
 console.log("Another player address:", anotherPlayer.address);
 console.log("Transfer transaction hash:", transferTransaction.hash);
 console.log("Game account after transfer:", gameAccountAfterTransfer);
