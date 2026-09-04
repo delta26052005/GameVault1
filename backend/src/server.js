@@ -1,6 +1,7 @@
 const express = require('express');
 const connectDB = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
+const userRoutes = require('./routes/userRoutes');
 
 const app = express();
 const port = 5000;
@@ -8,6 +9,7 @@ const port = 5000;
 // Allow the server to receive JSON request bodies.
 app.use(express.json());
 app.use('/api/auth', authRoutes);
+app.use('/api/user', userRoutes);
 
 app.get('/api/health', (req, res) => {
 	res.json({
