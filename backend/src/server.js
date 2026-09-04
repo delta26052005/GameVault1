@@ -1,4 +1,5 @@
 const express = require('express');
+const connectDB = require('./config/db');
 
 const app = express();
 const port = 5000;
@@ -13,6 +14,12 @@ app.get('/api/health', (req, res) => {
 	});
 });
 
-app.listen(port, () => {
-	console.log(`GameVault backend is running on port ${port}`);
-});
+async function startServer() {
+	await connectDB();
+
+	app.listen(port, () => {
+		console.log(`GameVault backend is running on port ${port}`);
+	});
+}
+
+startServer();
