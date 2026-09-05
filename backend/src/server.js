@@ -3,6 +3,7 @@ const cors = require('cors');
 const connectDB = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
+const gameRoutes = require('./routes/gameRoutes');
 
 const app = express();
 const port = 5000;
@@ -13,6 +14,7 @@ app.use(cors());
 app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
+app.use('/api/games', gameRoutes);
 
 app.get('/api/health', (req, res) => {
 	res.json({
