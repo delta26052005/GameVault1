@@ -34,4 +34,19 @@ router.post('/', authMiddleware, async (req, res) => {
 	}
 });
 
+router.get('/', authMiddleware, async (req, res) => {
+	try {
+		const games = await Game.find();
+
+		return res.status(200).json({
+			games: games
+		});
+	} catch (error) {
+		console.error('Game fetch error:', error);
+		return res.status(500).json({
+			message: 'Server error'
+		});
+	}
+});
+
 module.exports = router;
