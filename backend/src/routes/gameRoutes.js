@@ -1,30 +1,40 @@
 const express = require('express');
 const Game = require('../models/game');
 const authMiddleware = require('../middleware/authMiddleware');
+const { registerGameOnBlockchain } = require('../services/blockchainService');
 
 const router = express.Router();
 
 router.post('/', authMiddleware, async (req, res) => {
 	try {
-		const { name, developerAddress, blockchainGameId, description } = req.body;
+		const { name, developerAddress, description } = req.body;
 
-		if (!name || !developerAddress || !blockchainGameId) {
+		if (!name || !developerAddress) {
 			return res.status(400).json({
-				message: 'Name, developer address, and blockchain game ID are required'
+				message: 'Name and developer address are required'
 			});
 		}
+
+		const blockchainResult = await registerGameOnBlockchain(
+			name,
+			developerAddress
+		);
 
 		const game = new Game({
 			name,
 			developerAddress,
-			blockchainGameId,
+			blockchainGameId: Number(blockchainResult.gameId),
 			description
 		});
 		const savedGame = await game.save();
 
 		return res.status(201).json({
 			message: 'Game created successfully',
-			game: savedGame
+			game: savedGame,
+			blockchain: {
+				gameId: Number(blockchainResult.gameId),
+				transactionHash: blockchainResult.transactionHash
+			}
 		});
 	} catch (error) {
 		console.error('Game creation error:', error);
