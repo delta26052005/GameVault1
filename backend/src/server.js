@@ -4,6 +4,7 @@ const connectDB = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const gameRoutes = require('./routes/gameRoutes');
+const gameAccountRoutes = require('./routes/gameAccountRoutes');
 
 const app = express();
 const port = 5000;
@@ -15,6 +16,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/games', gameRoutes);
+app.use('/api/game-accounts', gameAccountRoutes);
 
 app.get('/api/health', (req, res) => {
 	res.json({
