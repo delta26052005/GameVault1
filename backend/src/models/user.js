@@ -22,6 +22,13 @@ const UserSchema = new mongoose.Schema({
 		type: String,
 		trim: true
 	},
+	walletChallenge: {
+		type: String,
+		trim: true
+	},
+	walletChallengeExpires: {
+		type: Date
+	},
 	createdAt: {
 		type: Date,
 		default: Date.now
