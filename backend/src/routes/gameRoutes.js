@@ -1,4 +1,5 @@
 const express = require('express');
+const { ethers } = require('ethers');
 const Game = require('../models/game');
 const authMiddleware = require('../middleware/authMiddleware');
 const { registerGameOnBlockchain } = require('../services/blockchainService');
@@ -15,14 +16,24 @@ router.post('/', authMiddleware, async (req, res) => {
 			});
 		}
 
+		let normalizedDeveloperAddress;
+
+		try {
+			normalizedDeveloperAddress = ethers.getAddress(developerAddress);
+		} catch (error) {
+			return res.status(400).json({
+				message: 'Invalid developer wallet address'
+			});
+		}
+
 		const blockchainResult = await registerGameOnBlockchain(
 			name,
-			developerAddress
+			normalizedDeveloperAddress
 		);
 
 		const game = new Game({
 			name,
-			developerAddress,
+			developerAddress: normalizedDeveloperAddress,
 			blockchainGameId: Number(blockchainResult.gameId),
 			description
 		});
