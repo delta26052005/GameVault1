@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   BrowserRouter,
   NavLink,
@@ -62,12 +62,55 @@ async function getProfile(token) {
   return apiFetch('/api/user/profile', token)
 }
 
+function getFriendlyError(error, fallback) {
+  const message = error?.message || ''
+
+  if (/user rejected|denied|cancelled/i.test(message)) {
+    return 'Transaction cancelled.'
+  }
+
+  if (/execution reverted|reverted|transaction failed/i.test(message)) {
+    return fallback
+  }
+
+  return message || fallback
+}
+
+async function getConnectedWallet() {
+  if (!window.ethereum) return ''
+
+  const provider =
+    new ethers.BrowserProvider(
+      window.ethereum
+    )
+
+  const accounts = await provider.send(
+    'eth_accounts',
+    []
+  )
+
+  return accounts[0]
+    ? ethers.getAddress(accounts[0])
+    : ''
+}
+
 function Toast({ toast, onClose }) {
   if (!toast) return null
 
+  const icon = {
+    success: '✓',
+    error: '!',
+    warning: '⚠',
+    info: 'i'
+  }[toast.type] || 'i'
+
   return (
-    <div className={`toast toast-${toast.type}`} role="status">
-      <span>{toast.type === 'error' ? '!' : '✓'}</span>
+    <div
+      className={`toast toast-${toast.type}`}
+      role="status"
+      aria-live="polite"
+    >
+      <span aria-hidden="true">{icon}</span>
 
       <div>{toast.message}</div>
 
@@ -505,12 +548,31 @@ function AssetRow({ asset, account }) {
   )
 }
 
+function shortAddress(address) {
+  if (!address) return 'Unknown'
+
+  return `${address.slice(0, 6)}...${address.slice(-4)}`
+}
+
+function formatActivityTime(value) {
+  const date = new Date(value)
+
+  return Number.isNaN(date.getTime())
+    ? 'Time unavailable'
+    : date.toLocaleString([], {
+        dateStyle: 'medium',
+        timeStyle: 'short'
+      })
+}
+
 function ActivityList({ items }) {
   if (!items.length) {
     return (
       <div className="empty-state">
-        No activity recorded yet.
-        Confirmed blockchain actions will appear here.
+        <strong>No recent activity</strong>
+        <span>
+          Your confirmed blockchain actions will appear here.
+        </span>
       </div>
     )
   }
@@ -538,13 +600,27 @@ function ActivityList({ items }) {
             </div>
 
             <div className="activity-time">
-              {item.time}
+              {formatActivityTime(item.time)}
 
               <span className="activity-status">
                 {' '}
                 · Confirmed
               </span>
             </div>
+
+            {item.type === 'transfer' && (
+              <>
+                <div className="activity-time">
+                  {shortAddress(item.previousOwner)}
+                  {' → '}
+                  {shortAddress(item.newOwner)}
+                </div>
+
+                <div className="activity-time">
+                  Tx: {shortAddress(item.blockchainId)}
+                </div>
+              </>
+            )}
           </div>
         </div>
       ))}
@@ -634,17 +710,15 @@ function WalletPanel({
         'success'
       )
     } catch (err) {
-      setError(true)
-      setStatus(
-        err.message ||
-        'Wallet verification failed'
+      const message = getFriendlyError(
+        err,
+        'Wallet verification failed.'
       )
 
-      onToast(
-        err.message ||
-        'Wallet verification failed',
-        'error'
-      )
+      setError(true)
+      setStatus(message)
+
+      onToast(message, 'error')
     } finally {
       setBusy(false)
     }
@@ -1269,8 +1343,13 @@ function Games({
 
       onRefresh()
     } catch (err) {
-      setMessage(err.message)
-      onToast(err.message, 'error')
+      const message = getFriendlyError(
+        err,
+        'Game account linking failed.'
+      )
+
+      setMessage(message)
+      onToast(message, 'error')
     } finally {
       setBusy(false)
     }
@@ -1450,8 +1529,13 @@ function Assets({
 
       onRefresh()
     } catch (err) {
-      setMessage(err.message)
-      onToast(err.message, 'error')
+      const message = getFriendlyError(
+        err,
+        'Asset creation failed.'
+      )
+
+      setMessage(message)
+      onToast(message, 'error')
     } finally {
       setBusy(false)
     }
@@ -1613,6 +1697,15 @@ function TransferPanel({
   const [selectedAccount, setSelectedAccount] =
     useState('')
 
+  const [currentOwner, setCurrentOwner] =
+    useState('')
+
+  const [connectedWallet, setConnectedWallet] =
+    useState('')
+
+  const [ownerLoading, setOwnerLoading] =
+    useState(false)
+
   const [newOwner, setNewOwner] =
     useState('')
 
@@ -1622,10 +1715,144 @@ function TransferPanel({
   const [busy, setBusy] =
     useState(false)
 
+  const [transferStage, setTransferStage] =
+    useState('idle')
+
+  const ownershipVerified = Boolean(
+    currentOwner &&
+    connectedWallet &&
+    currentOwner === connectedWallet
+  )
+
+  useEffect(() => {
+    const ethereum = window.ethereum
+
+    if (!ethereum) {
+      return undefined
+    }
+
+    function updateConnectedWallet(accounts) {
+      try {
+        setConnectedWallet(
+          accounts?.[0]
+            ? ethers.getAddress(accounts[0])
+            : ''
+        )
+      } catch {
+        setConnectedWallet('')
+      }
+    }
+
+    getConnectedWallet()
+      .then(address =>
+        updateConnectedWallet(
+          address ? [address] : []
+        )
+      )
+      .catch(() => setConnectedWallet(''))
+
+    ethereum.on(
+      'accountsChanged',
+      updateConnectedWallet
+    )
+
+    return () => {
+      ethereum.removeListener(
+        'accountsChanged',
+        updateConnectedWallet
+      )
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setCurrentOwner('')
+        setMessage('')
+      }
+    })
+
+    if (!selectedAccount) {
+      queueMicrotask(() => {
+        if (!cancelled) {
+          setOwnerLoading(false)
+        }
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+
+    const account = accounts.find(
+      item => item._id === selectedAccount
+    )
+
+    if (!account) {
+      queueMicrotask(() => {
+        if (!cancelled) {
+          setOwnerLoading(false)
+        }
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setOwnerLoading(true)
+      }
+    })
+
+    getConnectedWallet()
+      .then(address => {
+        if (!cancelled) {
+          setConnectedWallet(address)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setConnectedWallet('')
+        }
+      })
+
+    apiFetch(
+      `/api/game-accounts/blockchain-owner/${account.blockchainAccountId}`,
+      token
+    )
+      .then(data => {
+        if (!cancelled) {
+          setCurrentOwner(
+            ethers.getAddress(data.ownerWallet)
+          )
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCurrentOwner('')
+          setMessage(
+            'Unable to verify the current blockchain owner.'
+          )
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setOwnerLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedAccount, accounts, token])
+
   async function transfer(event) {
     event.preventDefault()
 
     setBusy(true)
+    setTransferStage('confirming')
     setMessage('')
 
     try {
@@ -1641,6 +1868,12 @@ function TransferPanel({
         )
       }
 
+      if (!ownershipVerified) {
+        throw new Error(
+          'Connected wallet is not the current blockchain owner. Switch MetaMask to the current owner before transferring.'
+        )
+      }
+
       if (!newOwner) {
         throw new Error(
           'New owner wallet is required'
@@ -1652,6 +1885,8 @@ function TransferPanel({
           account.blockchainAccountId,
           newOwner
         )
+
+      setTransferStage('syncing')
 
       await apiFetch(
         '/api/game-accounts/transfer/confirm',
@@ -1682,10 +1917,16 @@ function TransferPanel({
 
       onRefresh()
     } catch (err) {
-      setMessage(err.message)
-      onToast(err.message, 'error')
+      const message = getFriendlyError(
+        err,
+        'Transfer failed. Make sure you are connected with the current account owner.'
+      )
+
+      setMessage(message)
+      onToast(message, 'error')
     } finally {
       setBusy(false)
+      setTransferStage('idle')
     }
   }
 
@@ -1698,7 +1939,7 @@ function TransferPanel({
         Ownership transfer
       </div>
 
-      <h2>Transfer account</h2>
+      <h2>Transfer account ownership</h2>
 
       <p className="muted">
         Confirm the wallet transfer on-chain
@@ -1736,6 +1977,61 @@ function TransferPanel({
         </select>
       </label>
 
+      <div className="verification-box">
+        <div className="verification-heading">
+          Ownership verification
+        </div>
+
+        <div>
+          <div className="verification-label">
+            Current blockchain owner
+          </div>
+
+          <strong
+            className="wallet-address"
+            title={currentOwner || undefined}
+          >
+            {ownerLoading
+              ? 'Checking blockchain ownership...'
+              : currentOwner
+                ? shortAddress(currentOwner)
+                : 'Unavailable'}
+          </strong>
+        </div>
+
+        <div>
+          <div className="verification-label">
+            Connected wallet
+          </div>
+
+          <strong
+            className="wallet-address"
+            title={connectedWallet || undefined}
+          >
+            {connectedWallet
+              ? shortAddress(connectedWallet)
+              : 'Unavailable'}
+          </strong>
+        </div>
+      </div>
+
+      {ownerLoading && (
+        <div className="feedback feedback-info">
+          Checking blockchain ownership...
+        </div>
+      )}
+
+      {currentOwner && connectedWallet && (
+        <StatusMessage
+          message={
+            ownershipVerified
+              ? '✓ Wallet verified. Connected wallet is the current owner.'
+              : '⚠ Wallet mismatch. The connected wallet is not the current blockchain owner.'
+          }
+          error={!ownershipVerified}
+        />
+      )}
+
       <label>
         New owner wallet
 
@@ -1755,11 +2051,23 @@ function TransferPanel({
       <button
         className="primary-btn"
         type="submit"
-        disabled={busy}
+        disabled={
+          busy ||
+          !selectedAccount ||
+          ownerLoading ||
+          !currentOwner ||
+          !connectedWallet ||
+          !ownershipVerified ||
+          !newOwner
+        }
       >
-        {busy
-          ? 'Confirming transfer...'
-          : 'Transfer ownership'}
+        {transferStage === 'syncing'
+          ? 'Synchronizing ownership...'
+          : transferStage === 'confirming'
+            ? 'Confirming transaction...'
+            : ownerLoading
+              ? 'Verifying owner...'
+              : 'Transfer ownership'}
       </button>
 
       <StatusMessage
@@ -2016,6 +2324,8 @@ function App() {
   const [toast, setToast] =
     useState(null)
 
+  const toastTimer = useRef(null)
+
   async function loadWorkspace(
     activeToken = token
   ) {
@@ -2084,9 +2394,25 @@ function App() {
           blockchainId: asset.blockchainAssetId
         }))
 
+      const transferActivity =
+        gameAccounts.flatMap(account =>
+          (account.transferHistory || []).map(
+            transfer => ({
+              id: `transfer-${account._id}-${transfer.transactionHash}`,
+              type: 'transfer',
+              title: 'Ownership transferred',
+              detail: `${account.game?.name || 'Game'} · #${account.blockchainAccountId}`,
+              time: transfer.createdAt,
+              blockchainId: transfer.transactionHash,
+              previousOwner: transfer.previousOwner,
+              newOwner: transfer.newOwner
+            })
+          )
+        )
+
       const recentActivity = Array.from(
         new Map(
-          [...accountActivity, ...assetActivity]
+			[...accountActivity, ...assetActivity, ...transferActivity]
             .filter(item => {
               const timestamp =
                 new Date(item.time).getTime()
@@ -2123,7 +2449,12 @@ function App() {
       setAssets(loadedAssets)
       setActivity(recentActivity)
     } catch (err) {
-      setLoadError(err.message)
+      setLoadError(
+        getFriendlyError(
+          err,
+          'Unable to load your dashboard.'
+        )
+      )
 
       if (err.status === 401) {
         logout()
@@ -2177,14 +2508,25 @@ function App() {
     message,
     type = 'success'
   ) {
+    if (toastTimer.current) {
+      window.clearTimeout(toastTimer.current)
+    }
+
     setToast({
       message,
       type
     })
 
-    window.setTimeout(
+    const duration =
+      type === 'error'
+        ? 6500
+        : type === 'warning'
+          ? 5600
+          : 4200
+
+    toastTimer.current = window.setTimeout(
       () => setToast(null),
-      4200
+      duration
     )
   }
 
