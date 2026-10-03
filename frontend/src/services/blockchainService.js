@@ -42,7 +42,8 @@ async function linkGameAccountOnBlockchain(
 				gameAccountLinkedEvent = parsedLog;
 				break;
 			}
-		} catch (error) {
+		} catch {
+			continue;
 		}
 	}
 
@@ -106,7 +107,8 @@ async function addAssetOnBlockchain(accountId, name, quantity) {
 				assetAddedEvent = parsedLog;
 				break;
 			}
-		} catch (error) {
+		} catch {
+			continue;
 		}
 	}
 

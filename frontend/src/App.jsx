@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   BrowserRouter,
   NavLink,
@@ -69,11 +69,15 @@ function getFriendlyError(error, fallback) {
     return 'Transaction cancelled.'
   }
 
+  if (/not.*owner|owner.*not|unauthorized/i.test(message)) {
+    return 'Connected wallet is not the current owner.'
+  }
+
   if (/execution reverted|reverted|transaction failed/i.test(message)) {
     return fallback
   }
 
-  return message || fallback
+  return fallback
 }
 
 async function getConnectedWallet() {
@@ -2326,7 +2330,18 @@ function App() {
 
   const toastTimer = useRef(null)
 
-  async function loadWorkspace(
+  const logout = useCallback(() => {
+    localStorage.removeItem('token')
+
+    setToken(null)
+    setUser(null)
+    setGames([])
+    setAccounts([])
+    setAssets([])
+    setActivity([])
+  }, [])
+
+  const loadWorkspace = useCallback(async function loadWorkspace(
     activeToken = token
   ) {
     if (!activeToken) return
@@ -2462,18 +2477,15 @@ function App() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [logout, token])
 
-  // Defer the stateful workspace load
-  // until after the route render.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (token) {
       queueMicrotask(() =>
         loadWorkspace(token)
       )
     }
-  }, [token])
+  }, [loadWorkspace, token])
 
   function onAuthenticated(loginUser) {
     setUser(loginUser)
@@ -2487,17 +2499,6 @@ function App() {
       ...current,
       ...updatedUser
     }))
-  }
-
-  function logout() {
-    localStorage.removeItem('token')
-
-    setToken(null)
-    setUser(null)
-    setGames([])
-    setAccounts([])
-    setAssets([])
-    setActivity([])
   }
 
   function refresh() {
