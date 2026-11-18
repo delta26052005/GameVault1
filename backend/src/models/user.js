@@ -29,6 +29,24 @@ const UserSchema = new mongoose.Schema({
 	walletChallengeExpires: {
 		type: Date
 	},
+	developerChallenge: {
+		type: String,
+		trim: true
+	},
+	developerChallengeExpires: {
+		type: Date
+	},
+	developerChallengeAddress: {
+		type: String,
+		trim: true
+	},
+	developerVerificationAddress: {
+		type: String,
+		trim: true
+	},
+	developerVerificationExpires: {
+		type: Date
+	},
 	createdAt: {
 		type: Date,
 		default: Date.now

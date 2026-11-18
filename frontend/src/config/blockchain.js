@@ -1,7 +1,27 @@
 export const GAMEVAULT_CONTRACT_ADDRESS =
-	'0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512';
+	import.meta.env.VITE_GAMEVAULT_CONTRACT_ADDRESS || '';
 
 export const GAMEVAULT_ABI = [
+	{
+		inputs: [
+			{ internalType: 'uint256', name: 'gameId', type: 'uint256' },
+			{ internalType: 'bool', name: 'active', type: 'bool' }
+		],
+		name: 'setGameActive',
+		outputs: [],
+		stateMutability: 'nonpayable',
+		type: 'function'
+	},
+	{
+		inputs: [
+			{ internalType: 'uint256', name: 'assetId', type: 'uint256' },
+			{ internalType: 'bool', name: 'active', type: 'bool' }
+		],
+		name: 'setAssetActive',
+		outputs: [],
+		stateMutability: 'nonpayable',
+		type: 'function'
+	},
 	{
 		inputs: [
 			{ internalType: 'uint256', name: 'gameId', type: 'uint256' },
@@ -130,6 +150,37 @@ export const GAMEVAULT_ABI = [
 			}
 		],
 		name: 'AssetAdded',
+		type: 'event'
+	},
+	{
+		anonymous: false,
+		inputs: [
+			{
+				indexed: true,
+				internalType: 'uint256',
+				name: 'assetId',
+				type: 'uint256'
+			},
+			{
+				indexed: true,
+				internalType: 'uint256',
+				name: 'gameId',
+				type: 'uint256'
+			},
+			{
+				indexed: false,
+				internalType: 'bool',
+				name: 'active',
+				type: 'bool'
+			},
+			{
+				indexed: true,
+				internalType: 'address',
+				name: 'changedBy',
+				type: 'address'
+			}
+		],
+		name: 'AssetStatusChanged',
 		type: 'event'
 	}
 ];

@@ -164,6 +164,22 @@ describe("GameVault", function () {
 		expect(await gameVault.getAssetOwner(1n)).to.equal(player.address);
 	});
 
+	it("allows only the developer to change asset status", async function () {
+		const { gameVault, admin, developer, player, anotherPlayer } = await deployFixture();
+		await createGameAccount(gameVault, admin, developer, player);
+		await gameVault.connect(developer).addAsset(1n, "Legendary Sword", 1n);
+
+		await expect(
+			gameVault.connect(anotherPlayer).setAssetActive(1n, false),
+		).to.be.revertedWithCustomError(gameVault, "UnauthorizedAssetDeveloper");
+
+		await expect(gameVault.connect(developer).setAssetActive(1n, false))
+			.to.emit(gameVault, "AssetStatusChanged")
+			.withArgs(1n, 1n, false, developer.address);
+
+		expect((await gameVault.getAsset(1n)).active).to.equal(false);
+	});
+
 	it("rejects asset creation from a non-developer", async function () {
 		const { gameVault, admin, developer, player, anotherPlayer } = await deployFixture();
 		await createGameAccount(gameVault, admin, developer, player);

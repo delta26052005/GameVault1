@@ -4,6 +4,16 @@ import {
 	GAMEVAULT_ABI
 } from '../config/blockchain';
 
+function getGameVaultAddress() {
+	if (!ethers.isAddress(GAMEVAULT_CONTRACT_ADDRESS)) {
+		throw new Error(
+			'VITE_GAMEVAULT_CONTRACT_ADDRESS is not configured with a valid address'
+		);
+	}
+
+	return GAMEVAULT_CONTRACT_ADDRESS;
+}
+
 async function linkGameAccountOnBlockchain(
 	gameId,
 	externalAccountId,
@@ -17,7 +27,7 @@ async function linkGameAccountOnBlockchain(
 	await provider.send('eth_requestAccounts', []);
 	const signer = await provider.getSigner();
 	const contract = new ethers.Contract(
-		GAMEVAULT_CONTRACT_ADDRESS,
+		getGameVaultAddress(),
 		GAMEVAULT_ABI,
 		signer
 	);
@@ -66,7 +76,7 @@ async function transferAccountOnBlockchain(accountId, newOwner) {
 	await provider.send('eth_requestAccounts', []);
 	const signer = await provider.getSigner();
 	const contract = new ethers.Contract(
-		GAMEVAULT_CONTRACT_ADDRESS,
+		getGameVaultAddress(),
 		GAMEVAULT_ABI,
 		signer
 	);
@@ -86,7 +96,7 @@ async function addAssetOnBlockchain(accountId, name, quantity) {
 	await provider.send('eth_requestAccounts', []);
 	const signer = await provider.getSigner();
 	const contract = new ethers.Contract(
-		GAMEVAULT_CONTRACT_ADDRESS,
+		getGameVaultAddress(),
 		GAMEVAULT_ABI,
 		signer
 	);
@@ -122,8 +132,54 @@ async function addAssetOnBlockchain(accountId, name, quantity) {
 	};
 }
 
+async function setAssetActiveOnBlockchain(assetId, gameId, active) {
+	if (!window.ethereum) {
+		throw new Error('MetaMask is not installed');
+	}
+
+	const provider = new ethers.BrowserProvider(window.ethereum);
+	await provider.send('eth_requestAccounts', []);
+	const signer = await provider.getSigner();
+	const contract = new ethers.Contract(
+		getGameVaultAddress(),
+		GAMEVAULT_ABI,
+		signer
+	);
+
+	const transaction = await contract.setAssetActive(assetId, active);
+	const receipt = await transaction.wait();
+	if (!receipt || receipt.status !== 1) {
+		throw new Error('Asset status transaction failed');
+	}
+
+	const event = receipt.logs
+		.map(log => {
+			try {
+				return contract.interface.parseLog({
+					topics: log.topics,
+					data: log.data
+				});
+			} catch {
+				return null;
+			}
+		})
+		.find(parsed =>
+			parsed?.name === 'AssetStatusChanged' &&
+			parsed.args.assetId.toString() === assetId.toString() &&
+			parsed.args.gameId.toString() === gameId.toString() &&
+			parsed.args.active === active
+		);
+
+	if (!event) {
+		throw new Error('Asset status event not found');
+	}
+
+	return receipt.hash;
+}
+
 export {
 	linkGameAccountOnBlockchain,
 	transferAccountOnBlockchain,
-	addAssetOnBlockchain
+	addAssetOnBlockchain,
+	setAssetActiveOnBlockchain
 };

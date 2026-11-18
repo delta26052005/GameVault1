@@ -6,19 +6,19 @@ import {
   Route,
   Routes,
   useLocation,
-  useNavigate
+  useNavigate,
+  useParams
 } from 'react-router-dom'
 import { ethers } from 'ethers'
 import {
   addAssetOnBlockchain,
   linkGameAccountOnBlockchain,
-  transferAccountOnBlockchain
+  transferAccountOnBlockchain,
+  setAssetActiveOnBlockchain
 } from './services/blockchainService'
 import './App.css'
 
 const API_URL = 'http://localhost:5000'
-const GITHUB_REPOSITORY_URL = 'https://github.com/your-org/gamevault'
-
 async function apiFetch(path, token, options = {}) {
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
@@ -146,7 +146,8 @@ function Brand() {
 function Sidebar({ open, onClose }) {
   const links = [
     ['⌂', 'Overview', '/dashboard'],
-    ['▣', 'My Games', '/games'],
+    ['▣', 'Games', '/games'],
+    ['◈', 'Game Accounts', '/accounts'],
     ['◇', 'Asset Inventory', '/assets'],
     ['↗', 'Activity', '/activity'],
     ['◉', 'Profile', '/profile']
@@ -196,7 +197,8 @@ function Topbar({ onMenu, onLogout, user, onToast }) {
 
   const labels = {
     '/dashboard': 'Overview',
-    '/games': 'My Games',
+    '/games': 'Games',
+    '/accounts': 'Game Accounts',
     '/assets': 'Asset Inventory',
     '/activity': 'Activity',
     '/profile': 'Profile'
@@ -308,16 +310,6 @@ function Topbar({ onMenu, onLogout, user, onToast }) {
                 <span>▣</span>
                 Copy wallet address
               </button>
-
-              <a
-                href={GITHUB_REPOSITORY_URL}
-                target="_blank"
-                rel="noreferrer"
-                onClick={() => setMenuOpen(false)}
-              >
-                <span>↗</span>
-                GitHub
-              </a>
 
               <div className="dropdown-divider" />
 
@@ -507,14 +499,14 @@ function GameCard({ game, onLink }) {
   )
 }
 
-function AssetRow({ asset, account }) {
-  const owner =
-    account?.ownerWallet ||
-    asset.gameAccount?.ownerWallet
+function AssetRow({ asset, account, canManage, pendingSync, onToggle }) {
+  const owner = asset.blockchainVerified
+    ? account?.ownerWallet || asset.gameAccount?.ownerWallet
+    : ''
 
   const shortenedOwner = owner
     ? `${owner.slice(0, 6)}...${owner.slice(-4)}`
-    : 'Owner unavailable'
+    : 'Blockchain ownership unavailable'
 
   return (
     <div className="panel asset-card">
@@ -544,10 +536,24 @@ function AssetRow({ asset, account }) {
           </div>
 
           <div className="asset-sub">
-            On-chain
+            {asset.blockchainVerified
+              ? asset.active === false ? 'Inactive' : 'Active'
+              : 'Historical record'}
           </div>
         </div>
       </div>
+      {canManage && (
+        <button
+          className="outline-btn card-action"
+          onClick={() => onToggle(asset)}
+        >
+          {pendingSync
+            ? 'Retry synchronization'
+            : asset.active === false
+              ? 'Reactivate asset'
+              : 'Deactivate asset'}
+        </button>
+      )}
     </div>
   )
 }
@@ -556,6 +562,16 @@ function shortAddress(address) {
   if (!address) return 'Unknown'
 
   return `${address.slice(0, 6)}...${address.slice(-4)}`
+}
+
+function loadPendingAssetSync(key) {
+  try {
+    const stored = localStorage.getItem(key)
+    return stored ? JSON.parse(stored) : {}
+  } catch (error) {
+    console.error('Unable to restore pending asset synchronization:', error)
+    return {}
+  }
 }
 
 function formatActivityTime(value) {
@@ -1261,8 +1277,197 @@ function AuthForm({
   )
 }
 
+function RegisterGame({ token, onRefresh, onToast }) {
+  const [name, setName] = useState('')
+  const [developerAddress, setDeveloperAddress] = useState('')
+  const [message, setMessage] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function registerGame(event) {
+    event.preventDefault()
+    setBusy(true)
+    setMessage('')
+
+    try {
+      await apiFetch('/api/games', token, {
+        method: 'POST',
+        body: JSON.stringify({ name, developerAddress })
+      })
+      setName('')
+      setDeveloperAddress('')
+      setMessage('Game registered successfully.')
+      onToast('Game registered successfully.', 'success')
+      onRefresh()
+    } catch (error) {
+      const friendlyMessage = getFriendlyError(
+        error,
+        'Unable to register the game.'
+      )
+      setMessage(friendlyMessage)
+      onToast(friendlyMessage, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form className="panel panel-pad action-panel" onSubmit={registerGame}>
+      <div className="eyebrow">Platform management</div>
+      <h2>Register game</h2>
+      <label>
+        Game name
+        <input
+          className="filter-input form-input"
+          value={name}
+          onChange={event => setName(event.target.value)}
+          required
+        />
+      </label>
+      <label>
+        Developer wallet
+        <input
+          className="filter-input form-input"
+          value={developerAddress}
+          onChange={event => setDeveloperAddress(event.target.value)}
+          placeholder="0x..."
+          required
+        />
+      </label>
+      <p className="muted">
+        The developer must verify this wallet from their own GameVault profile before registration.
+      </p>
+      <button className="primary-btn" type="submit" disabled={busy}>
+        {busy ? 'Registering game...' : 'Register game'}
+      </button>
+      <StatusMessage message={message} error={message.startsWith('Unable')} />
+    </form>
+  )
+}
+
+function GameDetails() {
+  const { id } = useParams()
+  const [game, setGame] = useState(null)
+  const [message, setMessage] = useState('')
+  const token = localStorage.getItem('token')
+
+  useEffect(() => {
+    apiFetch(`/api/games/${id}`, token)
+      .then(data => setGame(data.game))
+      .catch(() => setMessage('Unable to load game details.'))
+  }, [id, token])
+
+  return (
+    <div className="page">
+      <NavLink className="text-button" to="/games">← Back to games</NavLink>
+      {message && <div className="panel empty-state">{message}</div>}
+      {game && (
+        <>
+          <PageHeading
+            eyebrow="Game details"
+            title={game.name}
+            description="Platform game information and blockchain status."
+          />
+          <section className="panel panel-pad profile-fields">
+            <div><span className="field-label">Game ID</span><span className="field-value">#{game.blockchainGameId}</span></div>
+            <div><span className="field-label">Status</span><span className="field-value">{game.active === false ? 'Inactive' : 'Active'}</span></div>
+            <div><span className="field-label">Developer</span><span className="field-value wallet-address">{game.developerAddress}</span></div>
+            <div><span className="field-label">Relationship</span><span className="field-value">Registered platform game</span></div>
+          </section>
+        </>
+      )}
+    </div>
+  )
+}
+
 function Games({
   games,
+  token,
+  user,
+  onRefresh,
+  onToast
+}) {
+  const [pendingGame, setPendingGame] = useState(null)
+  const [statusBusy, setStatusBusy] = useState(false)
+
+  async function updateStatus() {
+    setStatusBusy(true)
+    try {
+      await apiFetch(`/api/games/${pendingGame.game._id}/status`, token, {
+        method: 'PATCH',
+        body: JSON.stringify({ active: pendingGame.active })
+      })
+      onToast(
+        pendingGame.active ? 'Game reactivated successfully.' : 'Game deactivated successfully.',
+        'success'
+      )
+      setPendingGame(null)
+      onRefresh()
+    } catch (error) {
+      onToast(getFriendlyError(error, 'Unable to update game status.'), 'error')
+    } finally {
+      setStatusBusy(false)
+    }
+  }
+
+  return (
+    <div className="page">
+      <PageHeading
+        eyebrow="Platform catalog"
+        title="Games"
+        description="Registered games and their current blockchain status."
+      />
+      <div className={`grid ${user?.role === 'ADMIN' ? 'profile-grid' : ''}`}>
+        <section>
+          <div className="grid game-grid">
+            {games.map(game => (
+              <div key={game._id}>
+                <GameCard game={game} />
+                <div className="game-actions">
+                  <NavLink className="outline-btn" to={`/games/${game._id}`}>View details</NavLink>
+                  {user?.role === 'ADMIN' && (
+                    <button
+                      className="outline-btn"
+                      onClick={() => setPendingGame({ game, active: game.active === false })}
+                    >
+                      {game.active === false ? 'Reactivate game' : 'Deactivate game'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          {!games.length && <div className="panel empty-state">No registered games yet.</div>}
+        </section>
+        {user?.role === 'ADMIN' && (
+          <RegisterGame token={token} onRefresh={onRefresh} onToast={onToast} />
+        )}
+      </div>
+      {pendingGame && (
+        <div className="modal-backdrop">
+          <div className="modal-card panel">
+            <button className="modal-close" onClick={() => setPendingGame(null)}>×</button>
+            <div className="eyebrow">Confirm status change</div>
+            <h2>{pendingGame.active ? 'Reactivate' : 'Deactivate'} {pendingGame.game.name}?</h2>
+            <p className="muted">
+              {pendingGame.active
+                ? 'This will allow new game-account and asset operations again.'
+                : 'This will prevent new game-account and asset operations. Blockchain history remains intact.'}
+            </p>
+            <button className="primary-btn" onClick={updateStatus} disabled={statusBusy}>
+              {statusBusy ? 'Waiting for confirmation...' : pendingGame.active ? 'Reactivate game' : 'Deactivate game'}
+            </button>
+            <button className="outline-btn" onClick={() => setPendingGame(null)} disabled={statusBusy}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function GameAccounts({
+  games,
+  accounts,
+  user,
   token,
   onRefresh,
   onToast
@@ -1363,8 +1568,8 @@ function Games({
     <div className="page">
       <PageHeading
         eyebrow="Your collection"
-        title="My games"
-        description="Connected titles and the identities you carry between them."
+        title="Game accounts"
+        description="Game identities linked to player wallets."
       />
 
       <div className="grid game-grid">
@@ -1372,16 +1577,49 @@ function Games({
           <GameCard
             key={game._id}
             game={game}
-            onLink={setSelected}
+            onLink={
+              user?.walletAddress &&
+              user.walletAddress.toLowerCase() ===
+                game.developerAddress?.toLowerCase()
+                ? setSelected
+                : undefined
+            }
           />
         ))}
       </div>
+
+      <section>
+        <div className="section-title">
+          <h2>Existing game accounts</h2>
+        </div>
+        <div className="grid game-grid">
+          {accounts.map(account => (
+            <div className="panel panel-pad" key={account._id}>
+              <div className="game-row">
+                <strong className="game-name">{account.externalAccountId}</strong>
+                <span className={`badge ${account.blockchainVerified ? 'badge-live' : 'badge-grey'}`}>
+                  {account.blockchainVerified ? 'Verified' : 'Historical'}
+                </span>
+              </div>
+              <div className="muted">{account.game?.name || 'Game'} · Account #{account.blockchainAccountId}</div>
+              <div className="muted">Owner: {account.blockchainVerified ? shortAddress(account.ownerWallet) : 'Unavailable on current chain'}</div>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {!games.length && (
         <div className="panel empty-state">
           No games returned by the backend.
         </div>
       )}
+
+      <TransferPanel
+        accounts={accounts}
+        token={token}
+        onRefresh={onRefresh}
+        onToast={onToast}
+      />
 
       {selected && (
         <div className="modal-backdrop">
@@ -1454,6 +1692,7 @@ function Games({
 function Assets({
   accounts,
   assets,
+  user,
   token,
   onRefresh,
   onToast
@@ -1472,6 +1711,88 @@ function Assets({
 
   const [busy, setBusy] =
     useState(false)
+
+  const pendingSyncKey =
+    `gamevault.pendingAssetSync.${user?.id || user?._id || 'anonymous'}`
+
+  const [pendingSync, setPendingSync] =
+    useState(() => loadPendingAssetSync(pendingSyncKey))
+
+  function updatePendingSync(update) {
+    setPendingSync(current => {
+      const next = update(current)
+
+      try {
+        localStorage.setItem(pendingSyncKey, JSON.stringify(next))
+      } catch (error) {
+        console.error('Unable to persist pending asset synchronization:', error)
+      }
+
+      return next
+    })
+  }
+
+  async function toggleAsset(asset) {
+    const active = asset.active === false
+    const gameId = asset.game?.blockchainGameId
+    const pending = pendingSync[asset._id]
+    let transactionHash = pending?.transactionHash || ''
+
+    try {
+      if (!pending && !gameId) {
+        throw new Error('Asset game information is unavailable')
+      }
+
+      if (!transactionHash) {
+        transactionHash = await setAssetActiveOnBlockchain(
+          asset.blockchainAssetId,
+          gameId,
+          active
+        )
+      }
+      await apiFetch(`/api/assets/${asset._id}/status`, token, {
+        method: 'PATCH',
+        body: JSON.stringify({ active, transactionHash })
+      })
+      updatePendingSync(current => {
+        const next = { ...current }
+        delete next[asset._id]
+        return next
+      })
+      onToast(
+        pending
+          ? 'Asset synchronization completed.'
+          : active
+          ? 'Asset reactivated successfully.'
+          : 'Asset deactivated successfully.',
+        'success'
+      )
+      onRefresh()
+    } catch (error) {
+      if (
+        !pending &&
+        transactionHash &&
+        error.message !== 'Asset game information is unavailable'
+      ) {
+        const message = error.message || ''
+        if (!/cancelled|rejected|denied|MetaMask/i.test(message)) {
+          updatePendingSync(current => ({
+            ...current,
+            [asset._id]: {
+              transactionHash,
+              active
+            }
+          }))
+        }
+      }
+      onToast(
+        transactionHash && !pending
+          ? 'Blockchain transaction confirmed, but synchronization failed. Retry synchronization.'
+          : getFriendlyError(error, 'Unable to update asset status.'),
+        'error'
+      )
+    }
+  }
 
   async function createAsset(event) {
     event.preventDefault()
@@ -1578,6 +1899,13 @@ function Assets({
                     key={asset._id}
                     asset={asset}
                     account={account}
+                    canManage={
+                      user?.role === 'DEVELOPER' &&
+                      user.walletAddress?.toLowerCase() ===
+                        asset.game?.developerAddress?.toLowerCase()
+                    }
+                    pendingSync={pendingSync[asset._id]}
+                    onToggle={toggleAsset}
                   />
                 )
               })}
@@ -1622,7 +1950,7 @@ function Assets({
                 Select account
               </option>
 
-              {accounts.map(account => (
+              {accounts.filter(account => account.blockchainVerified).map(account => (
                 <option
                   key={account._id}
                   value={account._id}
@@ -1967,7 +2295,7 @@ function TransferPanel({
             Select account
           </option>
 
-          {accounts.map(account => (
+          {accounts.filter(account => account.blockchainVerified).map(account => (
             <option
               key={account._id}
               value={account._id}
@@ -2105,10 +2433,8 @@ function Activity({ activity }) {
 
 function Profile({
   user,
-  accounts,
   token,
   onUserChange,
-  onRefresh,
   onToast
 }) {
   return (
@@ -2187,68 +2513,6 @@ function Profile({
             </div>
           </div>
 
-          <div style={{ marginTop: 24 }}>
-            <div className="section-title">
-              <h2>Linked games</h2>
-
-              <span className="badge badge-live">
-                {accounts.length}
-              </span>
-            </div>
-
-            {accounts.length ? (
-              <div
-                style={{
-                  display: 'grid',
-                  gap: 12
-                }}
-              >
-                {accounts.map(account => (
-                  <div
-                    key={account._id}
-                    style={{
-                      borderTop:
-                        '1px solid var(--line)',
-                      paddingTop: 12
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent:
-                          'space-between',
-                        gap: 12,
-                        alignItems: 'center'
-                      }}
-                    >
-                      <strong>
-                        {account.game?.name ||
-                          'Game'}
-                      </strong>
-
-                      <span className="badge badge-live">
-                        Verified
-                      </span>
-                    </div>
-
-                    <div className="profile-meta">
-                      Account ID:{' '}
-                      {account.externalAccountId}
-                    </div>
-
-                    <div className="profile-meta">
-                      Blockchain account: #
-                      {account.blockchainAccountId}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="profile-meta">
-                No game accounts linked yet.
-              </div>
-            )}
-          </div>
         </section>
 
         <div className="profile-actions">
@@ -2259,12 +2523,6 @@ function Profile({
             onToast={onToast}
           />
 
-          <TransferPanel
-            accounts={accounts}
-            token={token}
-            onRefresh={onRefresh}
-            onToast={onToast}
-          />
         </div>
       </div>
     </div>
@@ -2399,15 +2657,47 @@ function App() {
           blockchainId: account.blockchainAccountId
         }))
 
+      const gameActivity = gamesData.games.flatMap(game => [
+        {
+          id: `game-${game._id}`,
+          type: 'game',
+          title: 'Game registered',
+          detail: `${game.name} · #${game.blockchainGameId}`,
+          time: game.createdAt
+        },
+        ...(game.updatedAt && game.statusTransactionHash
+          ? [{
+              id: `game-status-${game._id}-${game.updatedAt}`,
+              type: 'game',
+              title: game.active === false ? 'Game deactivated' : 'Game reactivated',
+              detail: `${game.name} · #${game.blockchainGameId}`,
+              time: game.updatedAt,
+              blockchainId: game.statusTransactionHash
+            }]
+          : [])
+      ])
+
       const assetActivity =
-        loadedAssets.map(asset => ({
-          id: `asset-${asset._id}`,
-          type: 'asset',
-          title: 'Asset created',
-          detail: `${asset.name} × ${asset.quantity}`,
-          time: asset.createdAt,
-          blockchainId: asset.blockchainAssetId
-        }))
+        loadedAssets.flatMap(asset => [
+          {
+            id: `asset-${asset._id}`,
+            type: 'asset',
+            title: 'Asset created',
+            detail: `${asset.name} × ${asset.quantity}`,
+            time: asset.createdAt,
+            blockchainId: asset.blockchainAssetId
+          },
+          ...(asset.updatedAt && asset.statusTransactionHash
+            ? [{
+                id: `asset-status-${asset._id}-${asset.updatedAt}`,
+                type: 'asset',
+                title: asset.active === false ? 'Asset deactivated' : 'Asset reactivated',
+                detail: `${asset.name} × ${asset.quantity}`,
+                time: asset.updatedAt,
+                blockchainId: asset.blockchainAssetId
+              }]
+            : [])
+        ])
 
       const transferActivity =
         gameAccounts.flatMap(account =>
@@ -2427,7 +2717,7 @@ function App() {
 
       const recentActivity = Array.from(
         new Map(
-			[...accountActivity, ...assetActivity, ...transferActivity]
+          [...gameActivity, ...accountActivity, ...assetActivity, ...transferActivity]
             .filter(item => {
               const timestamp =
                 new Date(item.time).getTime()
@@ -2612,6 +2902,42 @@ function App() {
                 <Games
                   games={games}
                   token={token}
+                  user={user}
+                  onRefresh={refresh}
+                  onToast={showToast}
+                />
+              </AppShell>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/games/:id"
+          element={
+            <ProtectedRoute
+              token={token}
+              loading={loading}
+            >
+              <AppShell {...shellProps}>
+                <GameDetails />
+              </AppShell>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/accounts"
+          element={
+            <ProtectedRoute
+              token={token}
+              loading={loading}
+            >
+              <AppShell {...shellProps}>
+                <GameAccounts
+                  games={games}
+                  accounts={accounts}
+                  user={user}
+                  token={token}
                   onRefresh={refresh}
                   onToast={showToast}
                 />
@@ -2631,6 +2957,7 @@ function App() {
                 <Assets
                   accounts={accounts}
                   assets={assets}
+                  user={user}
                   token={token}
                   onRefresh={refresh}
                   onToast={showToast}
@@ -2666,12 +2993,10 @@ function App() {
               <AppShell {...shellProps}>
                 <Profile
                   user={user}
-                  accounts={accounts}
                   token={token}
                   onUserChange={
                     onUserChange
                   }
-                  onRefresh={refresh}
                   onToast={showToast}
                 />
               </AppShell>

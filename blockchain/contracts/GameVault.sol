@@ -50,6 +50,7 @@ contract GameVault {
 	error InvalidNewOwner();
 	error InvalidQuantity();
 	error AssetNotFound();
+	error UnauthorizedAssetDeveloper();
 
 	event GameRegistered(
 		uint256 indexed gameId,
@@ -78,6 +79,12 @@ contract GameVault {
 		string name,
 		uint256 quantity,
 		address addedBy
+	);
+	event AssetStatusChanged(
+		uint256 indexed assetId,
+		uint256 indexed gameId,
+		bool active,
+		address indexed changedBy
 	);
 
 	modifier onlyAdmin() {
@@ -215,5 +222,17 @@ contract GameVault {
 		GameAccount storage account = gameAccounts[asset.accountId];
 		if (account.accountId == 0) revert AccountNotFound();
 		return account.owner;
+	}
+
+	function setAssetActive(uint256 assetId, bool active) external {
+		Asset storage asset = assets[assetId];
+		if (asset.assetId == 0) revert AssetNotFound();
+
+		Game storage game = games[asset.gameId];
+		if (game.gameId == 0) revert GameNotFound();
+		if (msg.sender != game.developer) revert UnauthorizedAssetDeveloper();
+
+		asset.active = active;
+		emit AssetStatusChanged(assetId, asset.gameId, active, msg.sender);
 	}
 }

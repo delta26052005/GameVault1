@@ -20,10 +20,32 @@ const GameAccountSchema = new mongoose.Schema({
 		type: Number,
 		required: true
 	},
+	linkTransactionHash: {
+		type: String,
+		trim: true
+	},
 	active: {
 		type: Boolean,
 		default: true
 	},
+	transferHistory: [{
+		transactionHash: {
+			type: String,
+			required: true
+		},
+		previousOwner: {
+			type: String,
+			required: true
+		},
+		newOwner: {
+			type: String,
+			required: true
+		},
+		createdAt: {
+			type: Date,
+			default: Date.now
+		}
+	}],
 	createdAt: {
 		type: Date,
 		default: Date.now

@@ -1,13 +1,18 @@
+const { ethers } = require('ethers');
 const User = require('../models/user');
 
 async function isVerifiedDeveloper(userId, developerAddress) {
 	const user = await User.findById(userId);
 
-	if (!user || !user.walletAddress) {
+	if (!user?.walletAddress || !ethers.isAddress(developerAddress)) {
 		return false;
 	}
 
-	return user.walletAddress.toLowerCase() === developerAddress.toLowerCase();
+	try {
+		return ethers.getAddress(user.walletAddress) === ethers.getAddress(developerAddress);
+	} catch {
+		return false;
+	}
 }
 
 module.exports = {

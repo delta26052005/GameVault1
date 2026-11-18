@@ -15,6 +15,14 @@ const GameSchema = new mongoose.Schema({
 		type: Number,
 		required: true
 	},
+	registrationTransactionHash: {
+		type: String,
+		trim: true
+	},
+	statusTransactionHash: {
+		type: String,
+		trim: true
+	},
 	description: {
 		type: String,
 		trim: true
@@ -26,6 +34,9 @@ const GameSchema = new mongoose.Schema({
 	createdAt: {
 		type: Date,
 		default: Date.now
+	},
+	updatedAt: {
+		type: Date
 	}
 });
 

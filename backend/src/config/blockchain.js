@@ -21,8 +21,16 @@ const gameVault = new ethers.Contract(
 	wallet
 );
 
+async function ensureContractAvailable() {
+	const code = await provider.getCode(process.env.GAMEVAULT_CONTRACT_ADDRESS);
+	if (code === '0x') {
+		throw new Error('GameVault contract is not deployed at the configured address');
+	}
+}
+
 module.exports = {
 	provider,
 	wallet,
-	gameVault
+	gameVault,
+	ensureContractAvailable
 };
